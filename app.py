@@ -4,17 +4,16 @@ from bs4 import BeautifulSoup
 from langchain.text_splitter import CharacterTextSplitter
 from langchain_community.vectorstores import FAISS
 from langchain.embeddings import HuggingFaceEmbeddings
+import google.generativeai as genai
 import os
 from dotenv import load_dotenv
-import google.generativeai as genai
+import pandas as pd
+import json
 
 # ----------------- Config -----------------
 load_dotenv()
 API_KEY = os.getenv("GOOGLE_API_KEY")
-
-# Configure Gemini
 genai.configure(api_key=API_KEY)
-model = genai.GenerativeModel("gemini-2.0-flash")  # ✅ correct way
 
 # ----------------- Functions -----------------
 def scrape_text_from_url(url: str) -> str:
@@ -36,7 +35,8 @@ def create_vector_store(text: str):
     return vector_store
 
 def ask_gemini(prompt: str) -> str:
-    """Call Google Gemini model via GenerativeModel."""
+    """Call Google Gemini model via google-generativeai."""
+    model = genai.GenerativeModel("gemini-2.0-flash")
     response = model.generate_content(prompt)
     return response.text
 
@@ -77,6 +77,7 @@ if url:
                 "Sentiment Analysis",
                 "Domain Identification",
                 "Translation",
+                "Named Entity Recognition (NER)",
                 "Q&A"
             ])
 
@@ -93,17 +94,50 @@ if url:
             if st.button("Run Task"):
                 with st.spinner(f"Running {task}..."):
                     result = ""
+
                     if task == "Summarization":
                         prompt = f"Summarize the following text in 5 lines:\n\n{web_text}"
                         result = ask_gemini(prompt)
+
                     elif task == "Sentiment Analysis":
                         prompt = f"Analyze the sentiment (Positive/Negative/Neutral) of the following text:\n\n{web_text}"
                         result = ask_gemini(prompt)
+
                     elif task == "Domain Identification":
                         result = identify_domain(web_text)
+
                     elif task == "Translation":
                         prompt = f"Translate the following text into {translation_language}:\n\n{web_text}"
                         result = ask_gemini(prompt)
+
+                    elif task == "Named Entity Recognition (NER)":
+                        prompt = f"""
+                        Extract named entities from the following text.
+                        Categorize them as PERSON, ORGANIZATION, LOCATION, DATE, or OTHER.
+                        Return the result in a JSON list with keys: entity, type.
+
+                        Example:
+                        [
+                          {{"entity": "Barack Obama", "type": "PERSON"}},
+                          {{"entity": "Google", "type": "ORGANIZATION"}}
+                        ]
+
+                        Text:
+                        {web_text}
+                        """
+                        response = ask_gemini(prompt)
+
+                        try:
+                            entities = json.loads(response)
+                            if isinstance(entities, list) and len(entities) > 0:
+                                df = pd.DataFrame(entities)
+                                st.subheader("✅ Named Entities Extracted")
+                                st.dataframe(df)
+                            else:
+                                st.write(response)
+                        except Exception:
+                            st.write(response)
+
                     elif task == "Q&A":
                         if query and query.strip() != "":
                             vector_store = create_vector_store(web_text)
@@ -116,6 +150,7 @@ if url:
                             st.warning("Please enter a question for Q&A.")
                             result = ""
 
-                    if result:
+                    # Show result for non-NER tasks
+                    if result and task != "Named Entity Recognition (NER)":
                         st.subheader(f"✅ {task} Result")
                         st.write(result)
